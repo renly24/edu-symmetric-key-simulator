@@ -67,3 +67,43 @@ body {
     animation: none;
   }
 }
+
+/* ドラッグできる札：さわってほしいことを知らせる */
+.drag-hint {
+  animation: drag-hint 1.4s ease-in-out infinite;
+}
+
+@keyframes drag-hint {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(8px);
+  }
+}
+
+/* まちがえた場所に入れたとき */
+.shake {
+  animation: shake 0.35s;
+}
+
+@keyframes shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-6px);
+  }
+  75% {
+    transform: translateX(6px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drag-hint,
+  .shake {
+    animation: none;
+  }
+}
