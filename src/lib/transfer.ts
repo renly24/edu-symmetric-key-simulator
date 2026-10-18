@@ -57,7 +57,7 @@ export const SCENES: Record<SceneId, TransferScene> = {
   },
   cipher: {
     caption: "共通鍵で暗号化して送ると",
-    intro: "Aさんと Bさんは、前もって会ったときに同じ鍵「3」を決めておきました。この鍵は2人だけの秘密です。",
+    intro: "Aさんと Bさんは、共通鍵「3」を作って、2人で共有しておきました。この共通鍵は、絶対に第三者にもらしてはいけません。",
     keys: ["a", "b"],
     steps: [
       {
