@@ -12,7 +12,7 @@ export default function Home() {
             🔑 共通鍵暗号方式のしくみ
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            同じ鍵で暗号化して、同じ鍵で復号する。自分で暗号を作ったり解読したりしながら、しくみと弱点を確かめよう
+            同じ鍵で暗号化して、同じ鍵で復号する。自分で暗号化・復号しながら、しくみと課題を確かめよう
           </Typography>
         </Box>
         <SlideDeck />

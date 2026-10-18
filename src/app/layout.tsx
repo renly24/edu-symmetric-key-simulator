@@ -7,7 +7,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "共通鍵暗号方式のしくみ",
-  description: "シーザー暗号での暗号化・復号、総当たり、鍵の長さ、鍵配送問題を、操作とアニメーションで学ぶ教育用アプリ",
+  description: "平文・暗号文・暗号化・復号・鍵と、共通鍵暗号方式のしくみ・長所・課題を、自分で操作しながら学ぶ教育用アプリ",
 };
 
 export default function RootLayout({

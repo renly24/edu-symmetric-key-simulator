@@ -7,10 +7,10 @@ import Slider from "@mui/material/Slider";
 import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
-import { ALPHABET, decrypt, encrypt, formatDuration, formatLog10, shiftChar, toBits, xorBits } from "@/lib/cipher";
-import { BRUTE_CIPHER, BRUTE_KEY, CIPHER_COLOR, EVE_COLOR, KEY_COLOR, PLAIN_COLOR, SUMMARY_ITEMS, type SummaryBin } from "@/lib/model";
+import { ALPHABET, decrypt, encrypt, shiftChar } from "@/lib/cipher";
+import { CIPHER_COLOR, EVE_COLOR, KEY_COLOR, PLAIN_COLOR, SUMMARY_ITEMS, type SummaryBin } from "@/lib/model";
 import CipherDisk from "./CipherDisk";
-import { svgPoint, useDoneWhen, useWheelStep } from "./hooks";
+import { svgPoint, useDoneWhen } from "./hooks";
 import { Feedback } from "./Quizzes";
 
 // ---------- 共通部品 ----------
@@ -37,17 +37,6 @@ function Tag({ kind, children, big }: { kind: "plain" | "cipher" | "key"; childr
     >
       {children}
     </Box>
-  );
-}
-
-/** 10^n の「^n」を上付き文字にする */
-function Num({ text }: { text: string }) {
-  const [base, exp] = text.split("^");
-  return (
-    <>
-      {base}
-      {exp && <sup>{exp}</sup>}
-    </>
   );
 }
 
@@ -462,256 +451,6 @@ export function WrongKeyStage({ onDone }: { onDone?: () => void }) {
   );
 }
 
-// ---------- 第3章：総当たり ----------
-
-export function BruteForce({ onDone }: { onDone?: () => void }) {
-  const [key, setKey] = useState(0);
-  const [tried, setTried] = useState<number[]>([]);
-  const [picked, setPicked] = useState<number | null>(null);
-  const found = picked === BRUTE_KEY;
-  useDoneWhen(found, onDone);
-
-  const turn = (k: number) => {
-    setKey(k);
-    if (k !== 0 && !tried.includes(k)) setTried([...tried, k].sort((x, y) => x - y));
-  };
-
-  return (
-    <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "minmax(0, 0.9fr) minmax(0, 1.1fr)" }, gap: 2, alignItems: "start" }}>
-      <Stack spacing={1} alignItems="center">
-        <Stack direction="row" spacing={1} alignItems="center">
-          <Typography fontWeight={700}>🕵️ 暗号文</Typography>
-          <Tag kind="cipher" big>
-            {BRUTE_CIPHER}
-          </Tag>
-        </Stack>
-        <CipherDisk shift={key} onChange={turn} caption="ホイールで円盤を回すと、その鍵で復号した結果が右の表に記録されます" />
-      </Stack>
-      <Stack spacing={1}>
-        <Typography variant="body2" fontWeight={700}>
-          試した鍵：{tried.length} / 25
-        </Typography>
-        <Box sx={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 0.5, maxHeight: 330, overflowY: "auto", pr: 0.5 }}>
-          {tried.map((k) => {
-            const state = picked === k ? (k === BRUTE_KEY ? "ok" : "ng") : undefined;
-            return (
-              <Box
-                key={k}
-                role="button"
-                tabIndex={0}
-                onDoubleClick={() => setPicked(k)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setPicked(k);
-                  }
-                }}
-                title="ダブルクリックで「これだ！」"
-                sx={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  px: 1,
-                  py: 0.5,
-                  borderRadius: 1,
-                  cursor: "pointer",
-                  userSelect: "none",
-                  border: `2px solid ${state === "ok" ? "#2e7d32" : state === "ng" ? EVE_COLOR : k === key ? KEY_COLOR : "#cfd8dc"}`,
-                  bgcolor: state === "ok" ? "#e8f5e9" : state === "ng" ? "#ffebee" : "#fff",
-                  "&:hover": { bgcolor: state ? undefined : "#fff8e1" },
-                }}
-              >
-                <Typography component="span" sx={{ color: KEY_COLOR, fontSize: "0.75rem", fontWeight: 700 }}>
-                  鍵{k}
-                </Typography>
-                <Typography component="span" sx={{ fontFamily: "monospace", fontWeight: 700, color: state === "ok" ? PLAIN_COLOR : "text.primary" }}>
-                  {decrypt(BRUTE_CIPHER, k)}
-                </Typography>
-              </Box>
-            );
-          })}
-        </Box>
-        {tried.length === 0 && (
-          <Typography variant="body2" color="text.secondary">
-            まだ何も試していません。円盤の上でホイールを回してみよう。
-          </Typography>
-        )}
-        {picked !== null &&
-          (found ? (
-            <Feedback ok>
-              解読成功！ 鍵 {BRUTE_KEY} で「SAKURA」になりました。シーザー暗号は鍵が 25 通りしかないので、全部試してもすぐに解読できてしまいます。
-            </Feedback>
-          ) : (
-            <Feedback ok={false}>鍵 {picked} の結果は意味のある言葉ではありません。ほかの鍵も試してみよう。</Feedback>
-          ))}
-      </Stack>
-    </Box>
-  );
-}
-
-// ---------- 第3章：ビットで暗号化する（XOR） ----------
-
-const XOR_LETTERS = ["S", "U", "H", "I"];
-
-function BitRow({ label, bits, color, onToggle }: { label: ReactNode; bits: number[]; color: string; onToggle?: (i: number) => void }) {
-  return (
-    <>
-      <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color, alignSelf: "center", whiteSpace: "nowrap", pr: 0.5 }}>{label}</Typography>
-      {bits.map((b, i) => (
-        <Box
-          key={i}
-          component={onToggle ? "button" : "div"}
-          type={onToggle ? "button" : undefined}
-          onClick={onToggle ? () => onToggle(i) : undefined}
-          aria-label={onToggle ? `鍵の ${i + 1} ビット目（今は ${b}）` : undefined}
-          sx={{
-            border: `2px solid ${color}`,
-            borderRadius: 1,
-            bgcolor: b ? color : "#fff",
-            color: b ? "#fff" : color,
-            fontFamily: "monospace",
-            fontWeight: 700,
-            fontSize: "1.05rem",
-            py: 0.4,
-            textAlign: "center",
-            cursor: onToggle ? "pointer" : "default",
-            transition: "background-color 0.2s",
-            px: 0,
-          }}
-        >
-          {b}
-        </Box>
-      ))}
-    </>
-  );
-}
-
-export function XorStage({ onDone }: { onDone?: () => void }) {
-  const [letter, setLetter] = useState("S");
-  const [key, setKey] = useState([1, 0, 1, 1, 0, 1, 0, 0]);
-  const [changed, setChanged] = useState(0);
-  useDoneWhen(changed >= 3, onDone);
-  const plain = toBits(letter);
-  const cipher = xorBits(plain, key);
-  const back = xorBits(cipher, key);
-  const toggle = (i: number) => {
-    setKey(key.map((b, j) => (j === i ? 1 - b : b)));
-    setChanged(changed + 1);
-  };
-  const op = (
-    <Typography sx={{ gridColumn: "1 / -1", textAlign: "center", fontWeight: 700, color: "#78909c", lineHeight: 1 }}>
-      XOR（同じなら 0・違えば 1）↓
-    </Typography>
-  );
-  return (
-    <Stack spacing={1.5}>
-      <Stack direction="row" spacing={1} alignItems="center" justifyContent="center">
-        <Typography variant="body2" fontWeight={700}>
-          平文の文字：
-        </Typography>
-        {XOR_LETTERS.map((c) => (
-          <Button key={c} size="small" variant={c === letter ? "contained" : "outlined"} onClick={() => setLetter(c)} sx={{ minWidth: 36, fontFamily: "monospace", fontWeight: 700 }}>
-            {c}
-          </Button>
-        ))}
-      </Stack>
-      <Box sx={{ display: "grid", gridTemplateColumns: "auto repeat(8, minmax(0, 1fr))", gap: 0.5, maxWidth: 460, width: "100%", mx: "auto" }}>
-        <Typography sx={{ gridColumn: "1 / -1", fontWeight: 700 }}>👩 暗号化</Typography>
-        <BitRow label={`平文「${letter}」`} bits={plain} color={PLAIN_COLOR} />
-        <BitRow label="🔑 鍵" bits={key} color={KEY_COLOR} onToggle={toggle} />
-        {op}
-        <BitRow label="暗号文" bits={cipher} color={CIPHER_COLOR} />
-        <Typography sx={{ gridColumn: "1 / -1", fontWeight: 700, mt: 1.5 }}>🧑 復号</Typography>
-        <BitRow label="暗号文" bits={cipher} color={CIPHER_COLOR} />
-        <BitRow label="🔑 同じ鍵" bits={key} color={KEY_COLOR} />
-        {op}
-        <BitRow label={`平文「${String.fromCharCode(parseInt(back.join(""), 2))}」`} bits={back} color={PLAIN_COLOR} />
-      </Box>
-      <Typography variant="caption" color="text.secondary" textAlign="center">
-        オレンジの鍵のビットをクリックすると 0 と 1 が切りかわります（変えた回数：{changed}）。暗号文は変わりますが、復号の結果はいつも平文と同じです。
-      </Typography>
-    </Stack>
-  );
-}
-
-// ---------- 第3章：鍵の長さ ----------
-
-const TRY_PER_SEC_LOG = 12; // 1秒間に 1兆個（10^12 個）
-const UNIVERSE_YEARS_LOG = Math.log10(1.38e10);
-const YEAR_LOG = Math.log10(365 * 24 * 3600);
-const KEY_MARKS = [8, 56, 128, 256].map((v) => ({ value: v, label: `${v}` }));
-
-export function KeyLengthStage({ onDone }: { onDone?: () => void }) {
-  const [bits, setBits] = useState(56);
-  const panel = useRef<HTMLDivElement>(null);
-  useWheelStep(panel, (dir) => setBits((b) => Math.max(8, Math.min(256, b - dir * 8))));
-  useDoneWhen(bits >= 128, onDone);
-  const keysLog = bits * Math.log10(2);
-  const secLog = keysLog - TRY_PER_SEC_LOG;
-  const overUniverse = secLog - YEAR_LOG - UNIVERSE_YEARS_LOG;
-  return (
-    <Stack spacing={2}>
-      <Stack direction="row" spacing={2} alignItems="center" sx={{ px: 1 }}>
-        <Typography fontWeight={700} sx={{ whiteSpace: "nowrap", color: KEY_COLOR }}>
-          🔑 鍵の長さ：{bits} ビット
-        </Typography>
-        <Slider value={bits} min={8} max={256} step={8} marks={KEY_MARKS} onChange={(_, v) => setBits(v as number)} aria-label="鍵の長さ" sx={{ color: KEY_COLOR }} />
-      </Stack>
-      <Box ref={panel} title="ホイールを上に回すと鍵が長くなります" sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, gap: 1.5, cursor: "ns-resize" }}>
-        <Paper variant="outlined" sx={{ p: 1.5, textAlign: "center" }}>
-          <Typography variant="caption" color="text.secondary">
-            鍵の数（2 を {bits} 回かけた数）
-          </Typography>
-          <Typography sx={{ fontSize: "1.5rem", fontWeight: 700, color: CIPHER_COLOR }}>
-            <Num text={formatLog10(keysLog)} /> 通り
-          </Typography>
-        </Paper>
-        <Paper variant="outlined" sx={{ p: 1.5, textAlign: "center", borderColor: overUniverse > 0 ? "success.main" : "#cfd8dc", borderWidth: 2 }}>
-          <Typography variant="caption" color="text.secondary">
-            全部試すのにかかる時間（1秒に1兆個）
-          </Typography>
-          <Typography sx={{ fontSize: "1.5rem", fontWeight: 700, color: overUniverse > 0 ? PLAIN_COLOR : EVE_COLOR }}>
-            <Num text={formatDuration(secLog)} />
-          </Typography>
-          {overUniverse > 0 && (
-            <Typography variant="caption" fontWeight={700} color="success.main">
-              宇宙の年齢（約138億年）の <Num text={formatLog10(overUniverse)} /> 倍
-            </Typography>
-          )}
-        </Paper>
-      </Box>
-      <Box component="table" sx={{ borderCollapse: "collapse", width: "100%", "& td, & th": { border: "1px solid #cfd8dc", px: 1, py: 0.5, fontSize: "0.8rem" } }}>
-        <thead>
-          <Box component="tr" sx={{ bgcolor: "#eceff1" }}>
-            <th>暗号</th>
-            <th>鍵の数</th>
-            <th>全部試す時間</th>
-          </Box>
-        </thead>
-        <tbody>
-          <tr>
-            <td>シーザー暗号</td>
-            <td>25 通り</td>
-            <td>一瞬</td>
-          </tr>
-          {[56, 128].map((b) => (
-            <Box component="tr" key={b} sx={{ bgcolor: b === bits ? "#fff8e1" : undefined }}>
-              <td>{b} ビットの鍵</td>
-              <td>
-                <Num text={formatLog10(b * Math.log10(2))} /> 通り
-              </td>
-              <td>
-                <Num text={formatDuration(b * Math.log10(2) - TRY_PER_SEC_LOG)} />
-              </td>
-            </Box>
-          ))}
-        </tbody>
-      </Box>
-    </Stack>
-  );
-}
-
 // ---------- 第4章：人数と鍵の数 ----------
 
 const FACES = ["👩", "🧑", "👨", "👧", "👦", "👵", "👴", "🧒", "👱", "🧓"];
@@ -879,8 +618,8 @@ export function SummaryStage({ onDone }: { onDone?: () => void }) {
   };
 
   const bins: { bin: SummaryBin; title: string; color: string; bg: string }[] = [
-    { bin: "good", title: "👍 よいところ", color: PLAIN_COLOR, bg: "#f1f8e9" },
-    { bin: "bad", title: "⚠️ 困るところ", color: EVE_COLOR, bg: "#ffebee" },
+    { bin: "good", title: "👍 長所", color: PLAIN_COLOR, bg: "#f1f8e9" },
+    { bin: "bad", title: "⚠️ 課題", color: EVE_COLOR, bg: "#ffebee" },
   ];
 
   return (
@@ -937,10 +676,10 @@ export function SummaryStage({ onDone }: { onDone?: () => void }) {
       {done && (
         <Paper variant="outlined" sx={{ p: 1.25, textAlign: "center" }}>
           <Typography variant="body2" fontWeight={700}>
-            🔑 共通鍵暗号方式 ＝ 暗号化と復号に同じ鍵を使う（秘密鍵暗号方式）
+            🔑 共通鍵暗号方式（対称鍵暗号）＝ 暗号化と復号に同じ鍵（共通鍵）を使う
           </Typography>
           <Typography variant="caption" color="text.secondary">
-            使われている例：AES（Wi-Fi の暗号化、ファイルの暗号化、HTTPS でのデータのやりとり など）
+            代表的な暗号化アルゴリズム：AES（無線 LAN の通信を守る規格 WPA2・WPA3 で使われている）
           </Typography>
         </Paper>
       )}

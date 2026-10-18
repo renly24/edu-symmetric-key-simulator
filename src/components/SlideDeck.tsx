@@ -16,15 +16,12 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import { CHAPTERS, QUIZ_COLOR, SLIDES, quizLabel, type Slide } from "@/lib/model";
 import { ChoiceQuizView, FinalTest, OrderQuiz, type TestState } from "./Quizzes";
 import {
-  BruteForce,
   CaesarStage,
   Handwork,
   KeyCountStage,
-  KeyLengthStage,
   SummaryStage,
   TermsStage,
   WrongKeyStage,
-  XorStage,
 } from "./Stages";
 import PeekStage from "./PeekStage";
 import TransferStage from "./TransferStage";
@@ -57,12 +54,6 @@ function StageView({ slide, test, onTest, onSeek, onDone }: StageViewProps) {
       return <Handwork mode={stage.mode} text={stage.text} keyValue={stage.key} onDone={onDone} />;
     case "wrongkey":
       return <WrongKeyStage onDone={onDone} />;
-    case "brute":
-      return <BruteForce onDone={onDone} />;
-    case "xor":
-      return <XorStage onDone={onDone} />;
-    case "keylength":
-      return <KeyLengthStage onDone={onDone} />;
     case "keycount":
       return <KeyCountStage onDone={onDone} />;
     case "summary":
