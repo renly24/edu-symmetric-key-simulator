@@ -1,5 +1,5 @@
 "use client";
-import { type CSSProperties, Fragment, type ReactNode, useRef, useState } from "react";
+import { type CSSProperties, type DragEvent, Fragment, type MouseEvent, type PointerEvent, type ReactNode, useRef, useState } from "react";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Paper from "@mui/material/Paper";
@@ -8,7 +8,9 @@ import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import { ALPHABET, decrypt, encrypt, formatDuration, formatLog10, shiftChar, toBits, xorBits } from "@/lib/cipher";
-import { BRUTE_CIPHER, BRUTE_KEY, CIPHER_COLOR, EVE_COLOR, KEY_COLOR, PLAIN_COLOR } from "@/lib/model";
+import { BRUTE_CIPHER, BRUTE_KEY, CIPHER_COLOR, EVE_COLOR, KEY_COLOR, PLAIN_COLOR, SUMMARY_ITEMS, type SummaryBin } from "@/lib/model";
+import CipherDisk from "./CipherDisk";
+import { svgPoint, useDoneWhen, useWheelStep } from "./hooks";
 import { Feedback } from "./Quizzes";
 
 // ---------- 共通部品 ----------
@@ -69,24 +71,98 @@ function KeySlider({ value, onChange, label, min = 1, max = 25 }: { value: numbe
   );
 }
 
-// ---------- 第1章：暗号のことば ----------
+// ---------- 第1章：暗号のことば（カードを図に入れる） ----------
 
-function Arrow({ label }: { label: string }) {
-  return (
-    <Stack alignItems="center" spacing={0.25} sx={{ minWidth: 88 }}>
-      <Tag kind="key">🔑 鍵</Tag>
-      <Typography fontWeight={700} sx={{ fontSize: "0.85rem" }}>
-        {label}
-      </Typography>
-      <Typography sx={{ fontSize: "1.6rem", lineHeight: 1, color: "#78909c", transform: { xs: "rotate(90deg)", sm: "none" } }}>➜</Typography>
-    </Stack>
-  );
+type TermSlot = "plain" | "enc" | "cipher" | "dec" | "key";
+
+const TERM_ANSWER: Record<TermSlot, string> = { plain: "平文", enc: "暗号化", cipher: "暗号文", dec: "復号", key: "鍵" };
+const TERM_HINT: Record<TermSlot, string> = {
+  plain: "だれでも読める、元のメッセージのことです。",
+  enc: "読めない形に「変える」ことです。",
+  cipher: "読めない形に変わったメッセージのことです。",
+  dec: "元に「戻す」ことです。",
+  key: "どう変えるかを決める、秘密の情報です。",
+};
+/** カードを並べる順番（図の順番とは変えておく） */
+const TERM_CARDS = ["復号", "鍵", "平文", "暗号化", "暗号文"];
+
+/** ドラッグでもタップでも、カードを入れられるようにする */
+function dragCard(id: string, picked: string | null, setPicked: (v: string | null) => void) {
+  return {
+    draggable: true,
+    onDragStart: (e: DragEvent) => {
+      e.dataTransfer.setData("text/plain", id);
+      setPicked(id);
+    },
+    onClick: (e: MouseEvent) => {
+      e.stopPropagation();
+      setPicked(picked === id ? null : id);
+    },
+  };
 }
 
-export function TermsStage() {
-  const box = (title: string, sub: string, kind: "plain" | "cipher", text: string) => (
-    <Stack alignItems="center" spacing={0.5} sx={{ p: 1.5, borderRadius: 3, bgcolor: "#f5f7fa", minWidth: 120 }}>
-      <Typography fontWeight={700}>{title}</Typography>
+function dropTarget(onPut: (id: string) => void, picked: string | null) {
+  return {
+    onDragOver: (e: DragEvent) => e.preventDefault(),
+    onDrop: (e: DragEvent) => {
+      e.preventDefault();
+      onPut(e.dataTransfer.getData("text/plain"));
+    },
+    onClick: (e: MouseEvent) => {
+      e.stopPropagation();
+      if (picked) onPut(picked);
+    },
+  };
+}
+
+export function TermsStage({ onDone }: { onDone?: () => void }) {
+  const [filled, setFilled] = useState<TermSlot[]>([]);
+  const [picked, setPicked] = useState<string | null>(null);
+  const [miss, setMiss] = useState<{ slot: TermSlot; n: number } | null>(null);
+  const done = filled.length === 5;
+  useDoneWhen(done, onDone);
+
+  const put = (slot: TermSlot, card: string) => {
+    if (filled.includes(slot) || !card) return;
+    setPicked(null);
+    if (TERM_ANSWER[slot] === card) {
+      setFilled([...filled, slot]);
+      setMiss(null);
+    } else {
+      setMiss({ slot, n: (miss?.n ?? 0) + 1 });
+    }
+  };
+
+  const slotView = (slot: TermSlot, small?: boolean) => {
+    const ok = filled.includes(slot);
+    return (
+      <Box
+        key={miss?.slot === slot ? `${slot}-${miss.n}` : slot}
+        className={miss?.slot === slot ? "shake" : undefined}
+        data-slot={slot}
+        {...(ok ? {} : dropTarget((c) => put(slot, c), picked))}
+        sx={{
+          minWidth: small ? 64 : 84,
+          px: 1,
+          py: 0.25,
+          borderRadius: 1.5,
+          textAlign: "center",
+          fontWeight: 700,
+          fontSize: small ? "0.85rem" : "1rem",
+          border: ok ? "2px solid transparent" : `2px dashed ${picked ? "#1565c0" : "#90a4ae"}`,
+          bgcolor: ok ? "transparent" : picked ? "#e3f2fd" : "#fafafa",
+          color: ok ? (slot === "key" ? KEY_COLOR : "text.primary") : "#90a4ae",
+          cursor: ok ? "default" : picked ? "pointer" : "default",
+        }}
+      >
+        {ok ? TERM_ANSWER[slot] : "？"}
+      </Box>
+    );
+  };
+
+  const box = (title: ReactNode, sub: string, kind: "plain" | "cipher", text: string) => (
+    <Stack alignItems="center" spacing={0.5} sx={{ p: 1.25, borderRadius: 3, bgcolor: "#f5f7fa", minWidth: 120 }}>
+      {title}
       <Tag kind={kind} big>
         {text}
       </Tag>
@@ -95,92 +171,120 @@ export function TermsStage() {
       </Typography>
     </Stack>
   );
+  const arrow = (label: ReactNode, keyLabel: ReactNode) => (
+    <Stack alignItems="center" spacing={0.25} sx={{ minWidth: 90 }}>
+      <Stack direction="row" alignItems="center" spacing={0.25}>
+        <Typography>🔑</Typography>
+        {keyLabel}
+      </Stack>
+      {label}
+      <Typography sx={{ fontSize: "1.6rem", lineHeight: 1, color: "#78909c", transform: { xs: "rotate(90deg)", sm: "none" } }}>➜</Typography>
+    </Stack>
+  );
+
   return (
     <Stack spacing={2}>
+      {/* ことばのカード */}
+      <Stack direction="row" spacing={1} justifyContent="center" flexWrap="wrap" useFlexGap sx={{ minHeight: 40 }}>
+        {TERM_CARDS.filter((c) => !filled.some((f) => TERM_ANSWER[f] === c)).map((c) => (
+          <Box
+            key={c}
+            {...dragCard(c, picked, setPicked)}
+            role="button"
+            aria-pressed={picked === c}
+            sx={{
+              px: 1.5,
+              py: 0.5,
+              borderRadius: 2,
+              fontWeight: 700,
+              cursor: "grab",
+              userSelect: "none",
+              border: "2px solid #1565c0",
+              bgcolor: picked === c ? "#1565c0" : "#fff",
+              color: picked === c ? "#fff" : "#1565c0",
+              boxShadow: 2,
+            }}
+          >
+            {c}
+          </Box>
+        ))}
+        {done && <Typography fontWeight={700}>完成！ 下の要点で確かめよう。</Typography>}
+      </Stack>
       <Stack direction={{ xs: "column", sm: "row" }} alignItems="center" justifyContent="center" spacing={1}>
-        {box("平文", "だれでも読める", "plain", "SUSHI")}
-        <Arrow label="暗号化" />
-        {box("暗号文", "鍵がないと読めない", "cipher", "VXVKL")}
-        <Arrow label="復号" />
-        {box("平文", "元に戻った", "plain", "SUSHI")}
+        {box(slotView("plain"), "だれでも読める", "plain", "SUSHI")}
+        {arrow(slotView("enc", true), slotView("key", true))}
+        {box(slotView("cipher"), "鍵がないと読めない", "cipher", "VXVKL")}
+        {arrow(slotView("dec", true), <Typography fontWeight={700} sx={{ color: KEY_COLOR, fontSize: "0.85rem" }}>{filled.includes("key") ? "同じ鍵" : "？"}</Typography>)}
+        {box(<Typography fontWeight={700}>{filled.includes("plain") ? "平文" : "？"}</Typography>, "元に戻った", "plain", "SUSHI")}
       </Stack>
-      <Stack direction="row" spacing={1} justifyContent="center" alignItems="center">
-        <Typography variant="body2" fontWeight={700}>
-          👩 送る人がすること：暗号化
-        </Typography>
-        <Typography color="text.secondary">／</Typography>
-        <Typography variant="body2" fontWeight={700}>
-          🧑 受け取る人がすること：復号
-        </Typography>
-      </Stack>
+      {miss && !done && <Feedback ok={false}>そこではありません。ヒント：そこに入ることばは「{TERM_HINT[miss.slot]}」</Feedback>}
     </Stack>
   );
 }
 
 // ---------- 第2章：文字をずらす（シーザー暗号） ----------
 
-/** 平文の段と暗号文の段を並べた表 */
-function AlphabetStrip({ shift, mark }: { shift: number; mark?: { row: "plain" | "cipher"; col: number } }) {
+/** 平文の段と暗号文の段を並べた表。onPick があれば、文字のダブルクリックで選べる */
+function AlphabetStrip({
+  shift,
+  mark,
+  onPick,
+}: {
+  shift: number;
+  mark?: { row: "plain" | "cipher"; col: number };
+  onPick?: { row: "plain" | "cipher"; pick: (letter: string) => void };
+}) {
   const rows = [
     { name: "平文", kind: "plain" as const, color: PLAIN_COLOR, letter: (i: number) => ALPHABET[i] },
     { name: "暗号文", kind: "cipher" as const, color: CIPHER_COLOR, letter: (i: number) => shiftChar(ALPHABET[i], shift) },
   ];
   return (
-    <Box sx={{ display: "grid", gridTemplateColumns: "auto repeat(26, minmax(0, 1fr))", gap: { xs: "1px", sm: "2px" } }}>
-        {rows.map((r) => (
-          <Fragment key={r.name}>
-            <Typography sx={{ fontSize: { xs: "0.6rem", sm: "0.7rem" }, fontWeight: 700, color: r.color, pr: 0.5, alignSelf: "center", whiteSpace: "nowrap" }}>{r.name}</Typography>
-            {ALPHABET.split("").map((_, i) => {
-              const on = mark?.col === i;
-              const strong = on && mark?.row === r.kind;
-              return (
-                <Box
-                  key={i}
-                  sx={{
-                    textAlign: "center",
-                    fontFamily: "monospace",
-                    fontWeight: 700,
-                    fontSize: { xs: "0.62rem", sm: "0.85rem" },
-                    py: 0.4,
-                    borderRadius: 0.5,
-                    border: { xs: `1px solid ${r.color}`, sm: `1.5px solid ${r.color}` },
-                    bgcolor: strong ? "#fff176" : on ? "#fffde7" : "#fff",
-                    color: r.color,
-                    transform: strong ? "scale(1.15)" : "none",
-                    transition: "background-color 0.2s, transform 0.2s",
-                  }}
-                >
-                  {r.letter(i)}
-                </Box>
-              );
-            })}
-          </Fragment>
-        ))}
+    <Box sx={{ display: "grid", gridTemplateColumns: "auto repeat(26, minmax(0, 1fr))", gap: { xs: "1px", sm: "2px" }, userSelect: "none" }}>
+      {rows.map((r) => (
+        <Fragment key={r.name}>
+          <Typography sx={{ fontSize: { xs: "0.6rem", sm: "0.7rem" }, fontWeight: 700, color: r.color, pr: 0.5, alignSelf: "center", whiteSpace: "nowrap" }}>{r.name}</Typography>
+          {ALPHABET.split("").map((_, i) => {
+            const on = mark?.col === i;
+            const strong = on && mark?.row === r.kind;
+            const pickable = onPick?.row === r.kind;
+            return (
+              <Box
+                key={i}
+                onDoubleClick={pickable ? () => onPick!.pick(r.letter(i)) : undefined}
+                title={pickable ? "ダブルクリックで入力" : undefined}
+                sx={{
+                  textAlign: "center",
+                  fontFamily: "monospace",
+                  fontWeight: 700,
+                  fontSize: { xs: "0.62rem", sm: "0.85rem" },
+                  py: 0.4,
+                  borderRadius: 0.5,
+                  border: { xs: `1px solid ${r.color}`, sm: `1.5px solid ${r.color}` },
+                  bgcolor: strong ? "#fff176" : on ? "#fffde7" : "#fff",
+                  color: r.color,
+                  cursor: pickable ? "pointer" : "default",
+                  transform: strong ? "scale(1.15)" : "none",
+                  transition: "background-color 0.2s, transform 0.2s",
+                  "&:hover": pickable ? { bgcolor: "#e3f2fd" } : undefined,
+                }}
+              >
+                {r.letter(i)}
+              </Box>
+            );
+          })}
+        </Fragment>
+      ))}
     </Box>
   );
 }
 
-export function CaesarStage() {
-  const [key, setKey] = useState(3);
+export function CaesarStage({ onDone }: { onDone?: () => void }) {
+  const [key, setKey] = useState(0);
   const [col, setCol] = useState(0);
+  useDoneWhen(key === 3 && col === 0, onDone);
   return (
-    <Stack spacing={2}>
-      <KeySlider value={key} onChange={setKey} label="ずらす数（鍵）" />
-      <AlphabetStrip shift={key} mark={{ row: "plain", col }} />
-      <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap justifyContent="center">
-        {ALPHABET.split("").map((c, i) => (
-          <Button
-            key={c}
-            size="small"
-            variant={i === col ? "contained" : "outlined"}
-            onClick={() => setCol(i)}
-            sx={{ minWidth: 30, px: 0, fontFamily: "monospace", fontWeight: 700 }}
-            aria-label={`${c} を選ぶ`}
-          >
-            {c}
-          </Button>
-        ))}
-      </Stack>
+    <Stack spacing={1.5} alignItems="center">
+      <CipherDisk shift={key} onChange={setKey} mark={col} onPick={setCol} />
       <Stack direction="row" spacing={1.5} alignItems="center" justifyContent="center">
         <Tag kind="plain" big>
           {ALPHABET[col]}
@@ -193,7 +297,7 @@ export function CaesarStage() {
         </Tag>
       </Stack>
       <Typography variant="caption" color="text.secondary" textAlign="center">
-        文字のボタンを押すと、その文字がどこに移るか見られます。X・Y・Z で試すと、A に戻るのが分かります。
+        外側の文字をクリックすると、その文字がどこに移るか見られます。X・Y・Z で試すと、A に戻るのが分かります。
       </Typography>
     </Stack>
   );
@@ -201,13 +305,14 @@ export function CaesarStage() {
 
 // ---------- 第2章：手で暗号化・復号する ----------
 
-export function Handwork({ mode, text, keyValue }: { mode: "encrypt" | "decrypt"; text: string; keyValue: number }) {
+export function Handwork({ mode, text, keyValue, onDone }: { mode: "encrypt" | "decrypt"; text: string; keyValue: number; onDone?: () => void }) {
   const answer = mode === "encrypt" ? encrypt(text, keyValue) : decrypt(text, keyValue);
   const [values, setValues] = useState<string[]>(() => text.split("").map(() => ""));
   const [focus, setFocus] = useState<number | null>(0);
   const [checked, setChecked] = useState(false);
   const inputs = useRef<(HTMLInputElement | null)[]>([]);
   const correct = values.filter((v, i) => v === answer[i]).length;
+  useDoneWhen(checked && correct === text.length, onDone);
 
   // 選んでいる欄の、探す文字の位置
   let mark: { row: "plain" | "cipher"; col: number } | undefined;
@@ -239,7 +344,18 @@ export function Handwork({ mode, text, keyValue }: { mode: "encrypt" | "decrypt"
         </Typography>
         <Typography fontWeight={700}>？</Typography>
       </Stack>
-      <AlphabetStrip shift={keyValue} mark={mark} />
+      <AlphabetStrip
+        shift={keyValue}
+        mark={mark}
+        onPick={{
+          row: to,
+          pick: (letter) => {
+            if (focus === null) return;
+            set(focus, letter);
+            if (focus < text.length - 1) setFocus(focus + 1);
+          },
+        }}
+      />
       <Stack direction="row" spacing={1} justifyContent="center">
         {text.split("").map((c, i) => {
           const state = checked ? (values[i] === answer[i] ? "ok" : "ng") : undefined;
@@ -296,7 +412,7 @@ export function Handwork({ mode, text, keyValue }: { mode: "encrypt" | "decrypt"
           </Feedback>
         ) : (
           <Feedback ok={false}>
-            {correct} / {text.length} 文字正解。赤い欄を選ぶと、表のどこを見ればよいかが光ります。
+            {correct} / {text.length} 文字正解。赤い欄を選ぶと、表のどこを見ればよいかが光ります。光った文字のすぐ{mode === "encrypt" ? "下" : "上"}の文字をダブルクリックしよう。
             {mode === "decrypt" && "復号では、下の段（暗号文）から探して、上の段（平文）を読みます。"}
           </Feedback>
         ))}
@@ -309,107 +425,128 @@ export function Handwork({ mode, text, keyValue }: { mode: "encrypt" | "decrypt"
 const WRONG_CIPHER = "VXVKL";
 const WRONG_RIGHT_KEY = 3;
 
-export function WrongKeyStage() {
+export function WrongKeyStage({ onDone }: { onDone?: () => void }) {
   const [key, setKey] = useState(5);
   const plain = decrypt(WRONG_CIPHER, key);
   const ok = key === WRONG_RIGHT_KEY;
+  useDoneWhen(ok, onDone);
   return (
-    <Stack spacing={2}>
-      <Stack direction="row" spacing={1} alignItems="center" justifyContent="center">
-        <Typography fontWeight={700}>届いた暗号文</Typography>
-        <Tag kind="cipher" big>
-          {WRONG_CIPHER}
-        </Tag>
-      </Stack>
-      <KeySlider value={key} onChange={setKey} label="復号に使う鍵" />
-      <Paper variant="outlined" sx={{ p: 2, textAlign: "center", borderWidth: 2, borderColor: ok ? "success.main" : "#cfd8dc", bgcolor: ok ? "#f1f8e9" : "#fafafa" }}>
-        <Typography variant="caption" color="text.secondary">
-          鍵 {key} で復号した結果
-        </Typography>
-        <Stack direction="row" spacing={0.75} justifyContent="center" my={1}>
-          {plain.split("").map((c, i) => (
-            <Box
-              key={`${key}-${i}`}
-              className="seq-anim"
-              sx={{ fontFamily: "monospace", fontWeight: 700, fontSize: "2rem", color: ok ? PLAIN_COLOR : "#90a4ae", width: 36 }}
-            >
-              <span className="pop" style={{ "--delay": `${i * 0.05}s` } as CSSProperties}>
-                {c}
-              </span>
-            </Box>
-          ))}
+    <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "minmax(0, 1fr) minmax(0, 1fr)" }, gap: 2, alignItems: "center" }}>
+      <CipherDisk shift={key} onChange={setKey} caption="復号は、内側（暗号文）の文字を探して、外側（平文）の文字を読みます" />
+      <Stack spacing={1.5}>
+        <Stack direction="row" spacing={1} alignItems="center" justifyContent="center">
+          <Typography fontWeight={700}>届いた暗号文</Typography>
+          <Tag kind="cipher" big>
+            {WRONG_CIPHER}
+          </Tag>
         </Stack>
-        <Typography fontWeight={700} color={ok ? "success.main" : "text.secondary"}>
-          {ok ? "⭕ 意味のある言葉（SUSHI）に戻った！ 暗号化と同じ鍵です" : "❌ 意味のない文字の並び。読めません"}
-        </Typography>
-      </Paper>
-    </Stack>
+        <Paper variant="outlined" sx={{ p: 2, textAlign: "center", borderWidth: 2, borderColor: ok ? "success.main" : "#cfd8dc", bgcolor: ok ? "#f1f8e9" : "#fafafa" }}>
+          <Typography variant="caption" color="text.secondary">
+            鍵 {key} で復号した結果
+          </Typography>
+          <Stack direction="row" spacing={0.75} justifyContent="center" my={1}>
+            {plain.split("").map((c, i) => (
+              <Box key={`${key}-${i}`} className="seq-anim" sx={{ fontFamily: "monospace", fontWeight: 700, fontSize: "2rem", color: ok ? PLAIN_COLOR : "#90a4ae", width: 32 }}>
+                <span className="pop" style={{ "--delay": `${i * 0.05}s` } as CSSProperties}>
+                  {c}
+                </span>
+              </Box>
+            ))}
+          </Stack>
+          <Typography fontWeight={700} color={ok ? "success.main" : "text.secondary"}>
+            {ok ? "⭕ 意味のある言葉（SUSHI）に戻った！ 暗号化と同じ鍵です" : "❌ 意味のない文字の並び。読めません"}
+          </Typography>
+        </Paper>
+      </Stack>
+    </Box>
   );
 }
 
 // ---------- 第3章：総当たり ----------
 
-export function BruteForce() {
-  const [tried, setTried] = useState(0);
+export function BruteForce({ onDone }: { onDone?: () => void }) {
+  const [key, setKey] = useState(0);
+  const [tried, setTried] = useState<number[]>([]);
   const [picked, setPicked] = useState<number | null>(null);
   const found = picked === BRUTE_KEY;
+  useDoneWhen(found, onDone);
+
+  const turn = (k: number) => {
+    setKey(k);
+    if (k !== 0 && !tried.includes(k)) setTried([...tried, k].sort((x, y) => x - y));
+  };
+
   return (
-    <Stack spacing={1.5}>
-      <Stack direction="row" spacing={1} alignItems="center" justifyContent="center">
-        <Typography fontWeight={700}>🕵️ コピーした暗号文</Typography>
-        <Tag kind="cipher" big>
-          {BRUTE_CIPHER}
-        </Tag>
+    <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "minmax(0, 0.9fr) minmax(0, 1.1fr)" }, gap: 2, alignItems: "start" }}>
+      <Stack spacing={1} alignItems="center">
+        <Stack direction="row" spacing={1} alignItems="center">
+          <Typography fontWeight={700}>🕵️ 暗号文</Typography>
+          <Tag kind="cipher" big>
+            {BRUTE_CIPHER}
+          </Tag>
+        </Stack>
+        <CipherDisk shift={key} onChange={turn} caption="ホイールで円盤を回すと、その鍵で復号した結果が右の表に記録されます" />
       </Stack>
-      <Stack direction="row" spacing={1} justifyContent="center">
-        <Button variant="contained" disabled={tried >= 25} onClick={() => setTried(tried + 1)}>
-          次の鍵を試す（鍵 {Math.min(tried + 1, 25)}）
-        </Button>
-        <Button variant="outlined" disabled={tried >= 25} onClick={() => setTried(25)}>
-          残りを全部試す
-        </Button>
-      </Stack>
-      <Box sx={{ display: "grid", gridTemplateColumns: { xs: "repeat(2, minmax(0, 1fr))", sm: "repeat(3, minmax(0, 1fr))" }, gap: 0.5 }}>
-        {Array.from({ length: tried }, (_, i) => i + 1).map((k) => {
-          const state = picked === k ? (k === BRUTE_KEY ? "ok" : "ng") : undefined;
-          return (
-            <Button
-              key={k}
-              size="small"
-              variant="outlined"
-              color={state === "ok" ? "success" : state === "ng" ? "error" : "inherit"}
-              onClick={() => setPicked(k)}
-              disabled={found}
-              sx={{
-                justifyContent: "space-between",
-                fontFamily: "monospace",
-                fontWeight: 700,
-                bgcolor: state === "ok" ? "#e8f5e9" : state === "ng" ? "#ffebee" : "#fff",
-                "&.Mui-disabled": { color: state === "ok" ? PLAIN_COLOR : undefined },
-              }}
-            >
-              <Box component="span" sx={{ color: KEY_COLOR, fontFamily: "Roboto, sans-serif", fontSize: "0.75rem" }}>
-                鍵{k}
-              </Box>
-              {decrypt(BRUTE_CIPHER, k)}
-            </Button>
-          );
-        })}
-      </Box>
-      {tried === 0 && (
-        <Typography variant="body2" color="text.secondary" textAlign="center">
-          「次の鍵を試す」を押すと、その鍵で復号した結果が並びます。
+      <Stack spacing={1}>
+        <Typography variant="body2" fontWeight={700}>
+          試した鍵：{tried.length} / 25
         </Typography>
-      )}
-      {picked !== null &&
-        (found ? (
-          <Feedback ok>
-            解読成功！ 鍵 {BRUTE_KEY} で「SAKURA」になりました。シーザー暗号は鍵が 25 通りしかないので、全部試してもすぐに解読できてしまいます。
-          </Feedback>
-        ) : (
-          <Feedback ok={false}>鍵 {picked} の結果は意味のある言葉ではありません。ほかの行も探してみよう。</Feedback>
-        ))}
-    </Stack>
+        <Box sx={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 0.5, maxHeight: 330, overflowY: "auto", pr: 0.5 }}>
+          {tried.map((k) => {
+            const state = picked === k ? (k === BRUTE_KEY ? "ok" : "ng") : undefined;
+            return (
+              <Box
+                key={k}
+                role="button"
+                tabIndex={0}
+                onDoubleClick={() => setPicked(k)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setPicked(k);
+                  }
+                }}
+                title="ダブルクリックで「これだ！」"
+                sx={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  px: 1,
+                  py: 0.5,
+                  borderRadius: 1,
+                  cursor: "pointer",
+                  userSelect: "none",
+                  border: `2px solid ${state === "ok" ? "#2e7d32" : state === "ng" ? EVE_COLOR : k === key ? KEY_COLOR : "#cfd8dc"}`,
+                  bgcolor: state === "ok" ? "#e8f5e9" : state === "ng" ? "#ffebee" : "#fff",
+                  "&:hover": { bgcolor: state ? undefined : "#fff8e1" },
+                }}
+              >
+                <Typography component="span" sx={{ color: KEY_COLOR, fontSize: "0.75rem", fontWeight: 700 }}>
+                  鍵{k}
+                </Typography>
+                <Typography component="span" sx={{ fontFamily: "monospace", fontWeight: 700, color: state === "ok" ? PLAIN_COLOR : "text.primary" }}>
+                  {decrypt(BRUTE_CIPHER, k)}
+                </Typography>
+              </Box>
+            );
+          })}
+        </Box>
+        {tried.length === 0 && (
+          <Typography variant="body2" color="text.secondary">
+            まだ何も試していません。円盤の上でホイールを回してみよう。
+          </Typography>
+        )}
+        {picked !== null &&
+          (found ? (
+            <Feedback ok>
+              解読成功！ 鍵 {BRUTE_KEY} で「SAKURA」になりました。シーザー暗号は鍵が 25 通りしかないので、全部試してもすぐに解読できてしまいます。
+            </Feedback>
+          ) : (
+            <Feedback ok={false}>鍵 {picked} の結果は意味のある言葉ではありません。ほかの鍵も試してみよう。</Feedback>
+          ))}
+      </Stack>
+    </Box>
   );
 }
 
@@ -450,13 +587,18 @@ function BitRow({ label, bits, color, onToggle }: { label: ReactNode; bits: numb
   );
 }
 
-export function XorStage() {
+export function XorStage({ onDone }: { onDone?: () => void }) {
   const [letter, setLetter] = useState("S");
   const [key, setKey] = useState([1, 0, 1, 1, 0, 1, 0, 0]);
+  const [changed, setChanged] = useState(0);
+  useDoneWhen(changed >= 3, onDone);
   const plain = toBits(letter);
   const cipher = xorBits(plain, key);
   const back = xorBits(cipher, key);
-  const toggle = (i: number) => setKey(key.map((b, j) => (j === i ? 1 - b : b)));
+  const toggle = (i: number) => {
+    setKey(key.map((b, j) => (j === i ? 1 - b : b)));
+    setChanged(changed + 1);
+  };
   const op = (
     <Typography sx={{ gridColumn: "1 / -1", textAlign: "center", fontWeight: 700, color: "#78909c", lineHeight: 1 }}>
       XOR（同じなら 0・違えば 1）↓
@@ -487,7 +629,7 @@ export function XorStage() {
         <BitRow label={`平文「${String.fromCharCode(parseInt(back.join(""), 2))}」`} bits={back} color={PLAIN_COLOR} />
       </Box>
       <Typography variant="caption" color="text.secondary" textAlign="center">
-        オレンジの鍵のビットをタップすると 0 と 1 が切りかわります。暗号文は変わりますが、復号の結果はいつも平文と同じです。
+        オレンジの鍵のビットをクリックすると 0 と 1 が切りかわります（変えた回数：{changed}）。暗号文は変わりますが、復号の結果はいつも平文と同じです。
       </Typography>
     </Stack>
   );
@@ -500,8 +642,11 @@ const UNIVERSE_YEARS_LOG = Math.log10(1.38e10);
 const YEAR_LOG = Math.log10(365 * 24 * 3600);
 const KEY_MARKS = [8, 56, 128, 256].map((v) => ({ value: v, label: `${v}` }));
 
-export function KeyLengthStage() {
+export function KeyLengthStage({ onDone }: { onDone?: () => void }) {
   const [bits, setBits] = useState(56);
+  const panel = useRef<HTMLDivElement>(null);
+  useWheelStep(panel, (dir) => setBits((b) => Math.max(8, Math.min(256, b - dir * 8))));
+  useDoneWhen(bits >= 128, onDone);
   const keysLog = bits * Math.log10(2);
   const secLog = keysLog - TRY_PER_SEC_LOG;
   const overUniverse = secLog - YEAR_LOG - UNIVERSE_YEARS_LOG;
@@ -513,7 +658,7 @@ export function KeyLengthStage() {
         </Typography>
         <Slider value={bits} min={8} max={256} step={8} marks={KEY_MARKS} onChange={(_, v) => setBits(v as number)} aria-label="鍵の長さ" sx={{ color: KEY_COLOR }} />
       </Stack>
-      <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, gap: 1.5 }}>
+      <Box ref={panel} title="ホイールを上に回すと鍵が長くなります" sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, gap: 1.5, cursor: "ns-resize" }}>
         <Paper variant="outlined" sx={{ p: 1.5, textAlign: "center" }}>
           <Typography variant="caption" color="text.secondary">
             鍵の数（2 を {bits} 回かけた数）
@@ -570,30 +715,105 @@ export function KeyLengthStage() {
 // ---------- 第4章：人数と鍵の数 ----------
 
 const FACES = ["👩", "🧑", "👨", "👧", "👦", "👵", "👴", "🧒", "👱", "🧓"];
+const DRAW_N = 4;
+const NODE_R = 19;
 
-export function KeyCountStage() {
-  const [n, setN] = useState(4);
-  const keys = (n * (n - 1)) / 2;
+function circlePos(n: number) {
   const R = 95;
   const C = 130;
-  const pos = Array.from({ length: n }, (_, i) => {
+  return Array.from({ length: n }, (_, i) => {
     const a = (2 * Math.PI * i) / n - Math.PI / 2;
     return { x: C + R * Math.cos(a), y: C + R * Math.sin(a) };
   });
-  const edges: [number, number][] = [];
-  for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) edges.push([i, j]);
+}
+
+const edgeId = (i: number, j: number) => (i < j ? `${i}-${j}` : `${j}-${i}`);
+
+export function KeyCountStage({ onDone }: { onDone?: () => void }) {
+  /** 4人の間に、自分で引いた線 */
+  const [edges, setEdges] = useState<string[]>([]);
+  /** 線を引いている途中（どの人から・いまのカーソル位置） */
+  const [from, setFrom] = useState<number | null>(null);
+  const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
+  const [n, setN] = useState(DRAW_N);
+  const svgRef = useRef<SVGSVGElement>(null);
+  const need = (DRAW_N * (DRAW_N - 1)) / 2;
+  const drawn = edges.length === need;
+  useDoneWhen(drawn, onDone);
+
+  const people = drawn ? n : DRAW_N;
+  const pos = circlePos(people);
+  const keys = (people * (people - 1)) / 2;
+  const allEdges: [number, number][] = [];
+  for (let i = 0; i < people; i++) for (let j = i + 1; j < people; j++) allEdges.push([i, j]);
+  const shown = drawn ? allEdges : allEdges.filter(([i, j]) => edges.includes(edgeId(i, j)));
+
+  const nodeAt = (x: number, y: number) => pos.findIndex((p) => Math.hypot(p.x - x, p.y - y) < NODE_R + 6);
+  const connect = (i: number, j: number) => {
+    if (i !== j && !edges.includes(edgeId(i, j))) setEdges([...edges, edgeId(i, j)]);
+  };
+
+  const onDown = (e: PointerEvent<SVGSVGElement>) => {
+    if (drawn) return;
+    const p = svgPoint(svgRef.current!, e.clientX, e.clientY);
+    const i = nodeAt(p.x, p.y);
+    if (i < 0) return;
+    // タップで選んでおいた人がいれば、その人とつなぐ
+    if (from !== null && cursor === null && from !== i) {
+      connect(from, i);
+      setFrom(null);
+      return;
+    }
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setFrom(i);
+    setCursor(p);
+  };
+  const onMove = (e: PointerEvent<SVGSVGElement>) => {
+    if (from === null || cursor === null) return;
+    setCursor(svgPoint(svgRef.current!, e.clientX, e.clientY));
+  };
+  const onUp = (e: PointerEvent<SVGSVGElement>) => {
+    if (from === null || cursor === null) return;
+    const p = svgPoint(svgRef.current!, e.clientX, e.clientY);
+    const j = nodeAt(p.x, p.y);
+    setCursor(null);
+    if (j >= 0 && j !== from) {
+      connect(from, j);
+      setFrom(null);
+    }
+    // 同じ人の上で離したときは、タップで選んだことにする（次にタップした人とつなぐ）
+    else if (j !== from) setFrom(null);
+  };
+
   return (
     <Stack spacing={1.5}>
-      <KeySlider value={n} onChange={setN} label="人数" min={2} max={10} />
+      {drawn ? (
+        <KeySlider value={n} onChange={setN} label="人数" min={2} max={10} />
+      ) : (
+        <Typography variant="body2" fontWeight={700} textAlign="center" sx={{ color: KEY_COLOR }}>
+          ✏️ 人から人へドラッグして、2人の間に鍵（線）を作ろう
+        </Typography>
+      )}
       <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "minmax(0, 1fr) auto" }, gap: 2, alignItems: "center" }}>
-        <Box component="svg" viewBox="0 0 260 260" role="img" aria-label={`${n}人と、${keys}本の鍵の線`} sx={{ width: "100%", maxWidth: 300, mx: "auto", display: "block" }}>
-          {edges.map(([i, j]) => (
-            <line key={`${i}-${j}`} x1={pos[i].x} y1={pos[i].y} x2={pos[j].x} y2={pos[j].y} stroke={KEY_COLOR} strokeWidth={2} opacity={0.7} />
+        <Box
+          component="svg"
+          ref={svgRef}
+          viewBox="0 0 260 260"
+          onPointerDown={onDown}
+          onPointerMove={onMove}
+          onPointerUp={onUp}
+          role="img"
+          aria-label={`${people}人と、${shown.length}本の鍵の線`}
+          sx={{ width: "100%", maxWidth: 300, mx: "auto", display: "block", touchAction: "none", userSelect: "none", cursor: drawn ? "default" : "crosshair" }}
+        >
+          {shown.map(([i, j]) => (
+            <line key={edgeId(i, j)} x1={pos[i].x} y1={pos[i].y} x2={pos[j].x} y2={pos[j].y} stroke={KEY_COLOR} strokeWidth={2.5} opacity={0.75} />
           ))}
+          {from !== null && cursor && <line x1={pos[from].x} y1={pos[from].y} x2={cursor.x} y2={cursor.y} stroke={KEY_COLOR} strokeWidth={2.5} strokeDasharray="5 4" />}
           {pos.map((p, i) => (
             <g key={i}>
-              <circle cx={p.x} cy={p.y} r={17} fill="#fff" stroke="#455a64" strokeWidth={2} />
-              <text x={p.x} y={p.y + 7} textAnchor="middle" fontSize={19}>
+              <circle cx={p.x} cy={p.y} r={NODE_R} fill={from === i ? "#fff3e0" : "#fff"} stroke={from === i ? KEY_COLOR : "#455a64"} strokeWidth={from === i ? 3 : 2} />
+              <text x={p.x} y={p.y + 7} textAnchor="middle" fontSize={20} pointerEvents="none">
                 {FACES[i]}
               </text>
             </g>
@@ -601,64 +821,129 @@ export function KeyCountStage() {
         </Box>
         <Stack spacing={1} alignItems="center" sx={{ minWidth: 180 }}>
           <Typography variant="caption" color="text.secondary">
-            必要な鍵（線の数）
+            {drawn ? "必要な鍵（線の数）" : "作った鍵（線の数）"}
           </Typography>
-          <Typography sx={{ fontSize: "2.4rem", fontWeight: 700, color: KEY_COLOR, lineHeight: 1 }}>{keys} 個</Typography>
-          <Typography variant="body2" fontWeight={700}>
-            {n} ×（{n} − 1）÷ 2 ＝ {keys}
-          </Typography>
-          <Typography variant="body2" color="text.secondary" textAlign="center">
-            1人が持つ鍵：{n - 1} 個
-          </Typography>
+          <Typography sx={{ fontSize: "2.4rem", fontWeight: 700, color: KEY_COLOR, lineHeight: 1 }}>{drawn ? keys : edges.length} 個</Typography>
+          {drawn ? (
+            <>
+              <Typography variant="body2" fontWeight={700}>
+                {people} ×（{people} − 1）÷ 2 ＝ {keys}
+              </Typography>
+              <Typography variant="body2" color="text.secondary" textAlign="center">
+                1人が持つ鍵：{people - 1} 個
+              </Typography>
+            </>
+          ) : (
+            <Typography variant="body2" color="text.secondary" textAlign="center">
+              どの2人の間にも、鍵が1つずつ必要です
+            </Typography>
+          )}
         </Stack>
       </Box>
+      {drawn && (
+        <Feedback ok>
+          4人なら、鍵は {need} 個必要でした。上のつまみで人数を増やすと、鍵の数がどんどん増えていくのが分かります。
+        </Feedback>
+      )}
+      {!drawn && edges.length > 0 && (
+        <Box>
+          <Button size="small" variant="outlined" onClick={() => setEdges([])}>
+            線を消す
+          </Button>
+        </Box>
+      )}
     </Stack>
   );
 }
 
-// ---------- 第5章：よいところ・困るところ ----------
+// ---------- 第5章：よいところ・困るところに仕分ける ----------
 
-export function SummaryStage() {
-  const cards = [
-    {
-      title: "👍 よいところ",
-      color: PLAIN_COLOR,
-      bg: "#f1f8e9",
-      items: ["しくみが単純で、暗号化・復号の計算が速い", "動画や大きなファイルなど、たくさんのデータの暗号化に向いている", "鍵が十分に長ければ、総当たりでは解読できない"],
-    },
-    {
-      title: "⚠️ 困るところ",
-      color: EVE_COLOR,
-      bg: "#ffebee",
-      items: ["鍵を安全に相手へ渡すのが難しい（鍵配送問題）", "鍵を盗まれると、暗号文をすべて復号されてしまう", "通信する相手ごとに鍵が必要で、人数が増えると管理が大変"],
-    },
+export function SummaryStage({ onDone }: { onDone?: () => void }) {
+  const [box, setBox] = useState<Record<string, SummaryBin | undefined>>({});
+  const [picked, setPicked] = useState<string | null>(null);
+  const [miss, setMiss] = useState<{ label: string; n: number } | null>(null);
+  const placed = SUMMARY_ITEMS.filter((i) => box[i.label]).length;
+  const done = placed === SUMMARY_ITEMS.length;
+  useDoneWhen(done, onDone);
+
+  const put = (bin: SummaryBin, label: string) => {
+    const item = SUMMARY_ITEMS.find((i) => i.label === label);
+    if (!item || box[label]) return;
+    setPicked(null);
+    if (item.answer === bin) {
+      setBox({ ...box, [label]: bin });
+      setMiss(null);
+    } else {
+      setMiss({ label, n: (miss?.n ?? 0) + 1 });
+    }
+  };
+
+  const bins: { bin: SummaryBin; title: string; color: string; bg: string }[] = [
+    { bin: "good", title: "👍 よいところ", color: PLAIN_COLOR, bg: "#f1f8e9" },
+    { bin: "bad", title: "⚠️ 困るところ", color: EVE_COLOR, bg: "#ffebee" },
   ];
+
   return (
     <Stack spacing={1.5}>
+      <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap justifyContent="center" sx={{ minHeight: 40 }}>
+        {SUMMARY_ITEMS.filter((i) => !box[i.label]).map((i) => (
+          <Box
+            key={miss?.label === i.label ? `${i.label}-${miss.n}` : i.label}
+            className={miss?.label === i.label ? "shake" : undefined}
+            {...dragCard(i.label, picked, setPicked)}
+            role="button"
+            aria-pressed={picked === i.label}
+            sx={{
+              px: 1.25,
+              py: 0.5,
+              borderRadius: 2,
+              fontWeight: 700,
+              fontSize: "0.85rem",
+              cursor: "grab",
+              userSelect: "none",
+              border: `2px solid ${miss?.label === i.label ? EVE_COLOR : "#1565c0"}`,
+              bgcolor: picked === i.label ? "#1565c0" : "#fff",
+              color: picked === i.label ? "#fff" : "#1565c0",
+              boxShadow: 2,
+            }}
+          >
+            {i.label}
+          </Box>
+        ))}
+        {done && <Typography fontWeight={700}>全部仕分けられました！</Typography>}
+      </Stack>
       <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, gap: 1.5 }}>
-        {cards.map((c) => (
-          <Box key={c.title} sx={{ border: 2, borderColor: c.color, bgcolor: c.bg, borderRadius: 3, p: 1.5 }}>
-            <Typography fontWeight={700} sx={{ color: c.color, fontSize: "1.1rem", mb: 0.75 }}>
-              {c.title}
+        {bins.map((b) => (
+          <Box
+            key={b.bin}
+            data-bin={b.bin}
+            {...dropTarget((label) => put(b.bin, label), picked)}
+            sx={{ border: `2px ${picked ? "dashed" : "solid"} ${b.color}`, bgcolor: b.bg, borderRadius: 3, p: 1.5, minHeight: 160, cursor: picked ? "pointer" : "default" }}
+          >
+            <Typography fontWeight={700} sx={{ color: b.color, fontSize: "1.1rem", mb: 0.75 }}>
+              {b.title}
             </Typography>
             <Stack component="ul" spacing={0.75} sx={{ m: 0, pl: 2.5 }}>
-              {c.items.map((t) => (
-                <Typography key={t} component="li" variant="body2" fontWeight={600}>
-                  {t}
+              {SUMMARY_ITEMS.filter((i) => box[i.label] === b.bin).map((i) => (
+                <Typography key={i.label} component="li" variant="body2" fontWeight={600}>
+                  {i.label}
                 </Typography>
               ))}
             </Stack>
           </Box>
         ))}
       </Box>
-      <Paper variant="outlined" sx={{ p: 1.25, textAlign: "center" }}>
-        <Typography variant="body2" fontWeight={700}>
-          🔑 共通鍵暗号方式 ＝ 暗号化と復号に同じ鍵を使う（秘密鍵暗号方式）
-        </Typography>
-        <Typography variant="caption" color="text.secondary">
-          使われている例：AES（Wi-Fi の暗号化、ファイルの暗号化、HTTPS でのデータのやりとり など）
-        </Typography>
-      </Paper>
+      {miss && !done && <Feedback ok={false}>「{miss.label}」は、そちらではありません。ここまでの体験を思い出してみよう。</Feedback>}
+      {done && (
+        <Paper variant="outlined" sx={{ p: 1.25, textAlign: "center" }}>
+          <Typography variant="body2" fontWeight={700}>
+            🔑 共通鍵暗号方式 ＝ 暗号化と復号に同じ鍵を使う（秘密鍵暗号方式）
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            使われている例：AES（Wi-Fi の暗号化、ファイルの暗号化、HTTPS でのデータのやりとり など）
+          </Typography>
+        </Paper>
+      )}
     </Stack>
   );
 }

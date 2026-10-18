@@ -8,6 +8,7 @@ import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import CancelIcon from "@mui/icons-material/Cancel";
+import { useDoneWhen } from "./hooks";
 import { ORDER_HINT, ORDER_SHOWN, ORDER_STEPS, TEST_QUESTIONS, slideIndexOf, type ChoiceQuiz } from "@/lib/model";
 
 // ---------- 共通部品 ----------
@@ -92,10 +93,11 @@ export function ChoiceQuizView({ quiz, value, onAnswer }: { quiz: ChoiceQuiz; va
 
 // ---------- 体験問題：手順の並べ替え ----------
 
-export function OrderQuiz() {
+export function OrderQuiz({ onDone }: { onDone?: () => void }) {
   const [placed, setPlaced] = useState(0);
   const [miss, setMiss] = useState(false);
   const done = placed === ORDER_STEPS.length;
+  useDoneWhen(done, onDone);
 
   const pick = (i: number) => {
     if (i < placed) return;
