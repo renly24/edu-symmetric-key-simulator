@@ -22,7 +22,7 @@ env:
   BASE_PATH: /omaesensei/digital/edu-symmetric-key-simulator
   # サーバー証明書は発行元が不明なため、この証明書（SHA-1 指紋）だけを信頼する。
   # サーバーの証明書が更新されたら、ftp-inspect の結果を見てここを更新する。
-  FTP_CERT_FINGERPRINT: "09:5C:41:9E:84:B7:C8:6D:37:F7:48:B4:27:BB:1B:43:89:D9:C2:24"
+  FTP_CERT_FINGERPRINT: "B1:F9:00:DB:E4:84:0B:B8:7B:28:0E:1D:29:A4:ED:FF:E6:4B:BE:B6"
 
 jobs:
   deploy:
