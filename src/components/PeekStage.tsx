@@ -19,12 +19,16 @@ const LENS_R = 38;
 /** 1つのメッセージが通信路を流れきる秒数 */
 const TRAVEL = 6;
 const PEEK_KEY = 3;
+/** タブレットでは指がのぞき穴を隠してしまうので、表示位置を指からこれだけ上にずらす */
+const TOUCH_LIFT = LENS_R + 24;
 
 const MESSAGES = ["SUSHI", "EKIMAE", "HIMITSU"];
 
 export default function PeekStage({ mode, onDone }: { mode: "plain" | "cipher"; onDone?: () => void }) {
   const [time, setTime] = useState(0);
-  const [lens, setLens] = useState<{ x: number; y: number } | null>(null);
+  // touch: 実際に触れている位置（判定に使う）
+  const [touch, setTouch] = useState<{ x: number; y: number } | null>(null);
+  const [isFinger, setIsFinger] = useState(false);
   const [seen, setSeen] = useState<number[]>([]);
   const svgRef = useRef<SVGSVGElement>(null);
   useDoneWhen(seen.length === MESSAGES.length, onDone);
@@ -47,15 +51,25 @@ export default function PeekStage({ mode, onDone }: { mode: "plain" | "cipher"; 
     const phase = (((time / TRAVEL + i / MESSAGES.length) % 1) + 1) % 1;
     return { i, x: X0 + (X1 - X0) * phase };
   });
-  const inLens = (x: number) => lens !== null && Math.abs(lens.x - x) < LENS_R + 20 && Math.abs(lens.y - LINE_Y) < LENS_R + 10;
+  // のぞき見たかどうかは、指（実際に触れている位置）で判定する
+  const inLens = (x: number) => touch !== null && Math.abs(touch.x - x) < LENS_R + 20 && Math.abs(touch.y - LINE_Y) < LENS_R + 10;
 
   // 虫めがねに入ったメッセージを、のぞき見たことにする
   const peeking = packets.filter((p) => inLens(p.x)).map((p) => p.i);
   const newly = peeking.filter((i) => !seen.includes(i));
   if (newly.length > 0) setSeen([...seen, ...newly]);
 
-  const onMove = (e: PointerEvent<SVGSVGElement>) => setLens(svgPoint(svgRef.current!, e.clientX, e.clientY));
+  const onMove = (e: PointerEvent<SVGSVGElement>) => {
+    setIsFinger(e.pointerType === "touch");
+    setTouch(svgPoint(svgRef.current!, e.clientX, e.clientY));
+  };
   const color = mode === "plain" ? PLAIN_COLOR : CIPHER_COLOR;
+
+  // 指でさわっているときは、虫めがねの表示を指から上にずらす（表示位置）。
+  // 判定はあくまで touch（指の実位置）で行い、見え方だけをずらす。
+  const lens =
+    touch && isFinger ? { x: touch.x, y: Math.max(LENS_R, touch.y - TOUCH_LIFT) } : touch;
+  const shiftY = lens ? lens.y - (touch?.y ?? lens.y) : 0;
 
   return (
     <Stack spacing={1.5}>
@@ -65,7 +79,7 @@ export default function PeekStage({ mode, onDone }: { mode: "plain" | "cipher"; 
         viewBox={`0 0 ${W} ${H}`}
         onPointerMove={onMove}
         onPointerDown={onMove}
-        onPointerLeave={() => setLens(null)}
+        onPointerLeave={() => setTouch(null)}
         role="img"
         aria-label="通信路を流れるメッセージ。カーソルを当てると中身が見える"
         sx={{ width: "100%", maxWidth: 560, mx: "auto", display: "block", bgcolor: "#fff", borderRadius: 2, border: "1px solid #e0e0e0", cursor: "none", touchAction: "none", userSelect: "none" }}
@@ -92,25 +106,31 @@ export default function PeekStage({ mode, onDone }: { mode: "plain" | "cipher"; 
             </text>
           </g>
         ))}
-        {/* 虫めがねの中：中身が見える */}
+        {/* 虫めがねの中：中身が見える。指でさわっているときは、指の下にある中身を少し上にずらして見せる */}
         {lens && (
           <g clipPath={`url(#lens-${mode})`}>
-            <rect x={0} y={0} width={W} height={H} fill="#fffde7" />
-            <line x1={X0} y1={LINE_Y} x2={X1} y2={LINE_Y} stroke="#90a4ae" strokeWidth={6} />
-            {packets.map((p) => (
-              <g key={p.i}>
-                <rect x={p.x - 40} y={LINE_Y - 14} width={80} height={28} rx={4} fill="#fff" stroke={color} strokeWidth={2.5} />
-                <text x={p.x} y={LINE_Y + 6} textAnchor="middle" fontSize={14} fontWeight={700} fill={color} fontFamily="monospace">
-                  {text(p.i)}
-                </text>
-              </g>
-            ))}
+            <g transform={`translate(0 ${shiftY})`}>
+              <rect x={0} y={0} width={W} height={H} fill="#fffde7" />
+              <line x1={X0} y1={LINE_Y} x2={X1} y2={LINE_Y} stroke="#90a4ae" strokeWidth={6} />
+              {packets.map((p) => (
+                <g key={p.i}>
+                  <rect x={p.x - 40} y={LINE_Y - 14} width={80} height={28} rx={4} fill="#fff" stroke={color} strokeWidth={2.5} />
+                  <text x={p.x} y={LINE_Y + 6} textAnchor="middle" fontSize={14} fontWeight={700} fill={color} fontFamily="monospace">
+                    {text(p.i)}
+                  </text>
+                </g>
+              ))}
+            </g>
           </g>
         )}
         {lens && (
           <g pointerEvents="none">
+            {/* 指の位置と虫めがねの表示をつなぐ軸（ずらしているときだけ見える） */}
+            {shiftY !== 0 && touch && <line x1={touch.x} y1={touch.y} x2={lens.x} y2={lens.y + LENS_R} stroke={EVE_COLOR} strokeWidth={2} strokeDasharray="3 3" opacity={0.6} />}
             <circle cx={lens.x} cy={lens.y} r={LENS_R} fill="none" stroke={EVE_COLOR} strokeWidth={4} />
-            <line x1={lens.x + LENS_R * 0.7} y1={lens.y + LENS_R * 0.7} x2={lens.x + LENS_R * 1.3} y2={lens.y + LENS_R * 1.3} stroke={EVE_COLOR} strokeWidth={7} strokeLinecap="round" />
+            {shiftY === 0 && (
+              <line x1={lens.x + LENS_R * 0.7} y1={lens.y + LENS_R * 0.7} x2={lens.x + LENS_R * 1.3} y2={lens.y + LENS_R * 1.3} stroke={EVE_COLOR} strokeWidth={7} strokeLinecap="round" />
+            )}
           </g>
         )}
       </Box>
