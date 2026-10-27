@@ -316,7 +316,13 @@ export function Handwork({ mode, text, keyValue, onDone }: { mode: "encrypt" | "
     next[i] = ch;
     setValues(next);
     setChecked(false);
-    if (ch && i < text.length - 1) inputs.current[i + 1]?.focus();
+    // 次の欄へのフォーカス移動は、この入力イベントの処理が完全に終わってから行う。
+    // タブレットのソフトウェアキーボードは、onChange の中で同期的にフォーカスを
+    // 移すと、入力中の次の文字が新しくフォーカスした欄に流れ込んでしまうことがある。
+    if (ch && i < text.length - 1) {
+      const nextIndex = i + 1;
+      setTimeout(() => inputs.current[nextIndex]?.focus(), 0);
+    }
   };
 
   const from = mode === "encrypt" ? "plain" : "cipher";
@@ -364,6 +370,7 @@ export function Handwork({ mode, text, keyValue, onDone }: { mode: "encrypt" | "
                   htmlInput: {
                     "aria-label": `${i + 1}文字目`,
                     autoCapitalize: "characters",
+                    maxLength: 1,
                     style: { textAlign: "center", fontFamily: "monospace", fontWeight: 700, fontSize: "1.3rem", padding: "6px 0", width: 40 },
                   },
                 }}
